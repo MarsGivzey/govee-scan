@@ -1,0 +1,38 @@
+{
+  "10.69.10.21": {
+    "sku": "H61B6",
+    "n": 100,
+    "x": 69,
+    "restore": "2800K",
+    "note": "cuttable strip; drive at n=100, keep effects in indices 0..68; user-verified 2026-11-12",
+    "device_id": "30:8D:F1:66:05:06:38:6A",
+    "mac": "5C:E7:53:DE:38:3A"
+  },
+  "10.69.10.103": {
+    "sku": "H61B6",
+    "n": 100,
+    "x": 47,
+    "restore": "2800K",
+    "device_id": "22:F2:C4:84:C4:86:09:4A",
+    "mac": "D4:13:68:54:B3:E6",
+    "note": "cuttable strip; n=100 accepted, n=104 rejected (101-103 not narrowed, n=102 answer never given); last attached segment found by bisection 2026-11-12 (user-observed); drive at n=100, keep effects in indices 0..46; 46..99 test seen as lit twice -> x=47 confirmed"
+  },
+  "10.69.10.208": {
+    "sku": "H61B6",
+    "n": 100,
+    "x": 47,
+    "restore": "2800K",
+    "device_id": "20:15:C3:84:C3:C6:5A:5E",
+    "mac": "D4:13:68:55:24:E8",
+    "note": "cuttable strip; n=100 accepted (white ref seen); 46..99 RGB seen; 47..99 CMY not reported by user, so last segment=46 is INFERRED from silence - confirm; user-observed 2026-11-12"
+  },
+  "10.69.10.130": {
+    "sku": "H61F2",
+    "n": 19,
+    "x": 19,
+    "restore": "2800K",
+    "device_id": "0E:F2:C8:50:9E:5B:17:77",
+    "mac": "D4:13:68:B2:FE:36",
+    "note": "cuttable strip; n=19 accepted, n=21 rejected (n=20 answer not given yet, so limit is 19 or 20); attached length NOT measured yet; user says one segment toward the middle has a DEAD GREEN channel (index unknown) - avoid pure green / expect a gap in green effects; user-observed 2026-11-12; length bisection: 9-18 lit, 14-18 lit, 16-18 lit, 16R/17G/18B furthest = blue => all 19 segments attached at n=19 (the whole frame is lit, so the strip may be longer than n=19 allows if n=20 is accepted)"
+  }
+}

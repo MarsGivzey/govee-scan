@@ -104,10 +104,28 @@ def parse_artdmx(data):
 
 def arp_table():
     macs = {}
-    for line in subprocess.run(["arp", "-a", "-n"], capture_output=True, text=True).stdout.splitlines():
-        m = re.search(r"\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-f:]+) on", line)
-        if m and "incomplete" not in line: macs[m.group(1)] = ":".join(p.zfill(2) for p in m.group(2).split(":")).upper()   # macOS drops leading zeros
+    try: out = subprocess.run(["arp", "-a"] if os.name == "nt" else ["arp", "-a", "-n"], capture_output=True, text=True).stdout
+    except OSError: return macs
+    for line in out.splitlines():
+        m = re.search(r"\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-f:]+) on", line)                 # macOS / Linux: "? (10.0.0.5) at aa:bb:.. on en0"
+        w = re.match(r"\s*(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f]{2}(?:-[0-9a-f]{2}){5})\s", line, re.I)   # Windows: "  10.0.0.5   aa-bb-..   dynamic"
+        if (m and "incomplete" not in line) or w:
+            ip, mac = (m.group(1), m.group(2).split(":")) if m else (w.group(1), w.group(2).split("-"))
+            macs[ip] = ":".join(p.zfill(2) for p in mac).upper()   # macOS drops leading zeros
     return macs
+
+def reusable(sock):
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if hasattr(socket, "SO_REUSEPORT"): sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)   # not on Windows
+    return sock
+
+def default_lan_ip():          # the address of the interface that routes off-box; a UDP connect() sends nothing
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))
+        return s.getsockname()[0]
+    except OSError: return None
+    finally: s.close()
 
 def main():
     ap = argparse.ArgumentParser()
@@ -118,6 +136,7 @@ def main():
     ap.add_argument("--rescan", type=float, default=30.0)
     ap.add_argument("--restore-kelvin", type=int, default=3200)
     ap.add_argument("--restore-brightness", type=int, default=100)
+    ap.add_argument("--interface", help="local IP of the NIC on the lights' network (default: the default-route NIC); matters on Windows with several adapters (WSL, Hyper-V, VPN)")
     ap.add_argument("--dry-run", action="store_true", help="no network output to devices; print what would be sent")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -131,20 +150,19 @@ def main():
     stop = []
     for s in (signal.SIGINT, signal.SIGTERM): signal.signal(s, lambda *_: stop.append(1))
 
-    art = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    art.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    art.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    iface = args.interface or default_lan_ip()
+    log(f"multicast scan interface: {iface or 'OS default'}")
+    art = reusable(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
     art.bind(("", args.port))
     tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     tx.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+    if iface: tx.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface))
     socks = [art]
     scan_rx = None
     if not args.dry_run:
-        scan_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        scan_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        scan_rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        scan_rx = reusable(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
         scan_rx.bind(("", LISTEN_PORT))
-        scan_rx.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, struct.pack("4sl", socket.inet_aton(MCAST), socket.INADDR_ANY))
+        scan_rx.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(MCAST) + socket.inet_aton(iface or "0.0.0.0"))
         socks.append(scan_rx)
     scan_msg = json.dumps({"msg": {"cmd": "scan", "data": {"account_topic": "reserve"}}}).encode()
 
@@ -243,7 +261,8 @@ def main():
                 if rx_stats["pkts"]: log(f"art-net: {rx_stats['pkts']} packets in the last {now - rx_stats['since']:.0f} s")
                 rx_stats["pkts"], rx_stats["since"] = 0, now
             for s in ready:
-                data, addr = s.recvfrom(4096)
+                try: data, addr = s.recvfrom(4096)
+                except ConnectionResetError: continue      # Windows surfaces ICMP port-unreachable as a recv error
                 if s is art: on_artnet(data, now, addr)
                 else: on_scan_reply(data, addr, now, unknown)
             for d in devs:
